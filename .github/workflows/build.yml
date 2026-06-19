@@ -1,0 +1,103 @@
+name: Build
+
+# https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#concurrency
+concurrency: 
+  group: "build"
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      # choose your default branch
+      - master
+      - main
+      - dev
+    paths-ignore:
+      - '*.md'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+        with:
+          path: "src"
+
+      - name: Checkout builds
+        uses: actions/checkout@master
+        with:
+          ref: "builds"
+          path: "builds"
+      
+      - name: Clean old builds
+        run: |
+          rm $GITHUB_WORKSPACE/builds/*.cs3 || true
+          rm $GITHUB_WORKSPACE/builds/*.jar || true
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v1
+        with:
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Build Plugins
+        run: |
+          cd $GITHUB_WORKSPACE/src
+          chmod +x gradlew
+          ./gradlew make makePluginsJson
+          ./gradlew ensureJarCompatibility
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
+          cp **/build/*.jar $GITHUB_WORKSPACE/builds
+          cp build/plugins.json $GITHUB_WORKSPACE/builds
+
+      - name: Push builds
+        run: |
+          cd $GITHUB_WORKSPACE/builds
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add .
+          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
+          git push --force          if ls $GITHUB_WORKSPACE/builds/*.cs3 1> /dev/null 2>&1; then
+            echo "Found old builds, cleaning up..."
+            rm $GITHUB_WORKSPACE/builds/*.cs3
+          else
+            echo "No .cs3 files found. Skipping."
+          fi
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v1
+        with:
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Inject TMDB API Key
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          # Dùng lệnh sed để tìm và thay thế chuỗi YOUR_API_KEY_HERE bằng giá trị thực từ Secret
+          # Bạn lưu ý file path phải chính xác đến file KKPExProvider.kt của bạn
+          sed -i "s/YOUR_API_KEY_HERE/$TMDB_KEY/g" src/KKPExProvider/src/main/kotlin/com/example/KKExUtils.kt
+          sed -i "s/YOUR_API_KEY_HERE/$TMDB_KEY/g" src/OPExProvider/src/main/kotlin/com/opex/OPExUtils.kt
+          
+      - name: Build Plugins
+        run: |
+          cd $GITHUB_WORKSPACE/src
+          chmod +x gradlew
+          ./gradlew make makePluginsJson
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
+          cp build/plugins.json $GITHUB_WORKSPACE/builds
+
+      - name: Push builds
+        run: |
+          cd $GITHUB_WORKSPACE/builds
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add .
+          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
+          git push --force

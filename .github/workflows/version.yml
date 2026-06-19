@@ -1,0 +1,64 @@
+name: Auto Increment & Trigger Build
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - 'OPExProvider/build.gradle.kts'
+      - 'KKExProvider/build.gradle.kts'
+  workflow_dispatch:
+
+jobs:
+  increment-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write # Cần quyền này để kích hoạt workflow khác
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Process Versions
+        id: bump_version
+        run: |
+          FILES=("OPExProvider/build.gradle.kts" "KKExProvider/build.gradle.kts")
+          UPDATED=false
+
+          for FILE in "${FILES[@]}"; do
+            if [ -f "$FILE" ]; then
+              CURRENT_VERSION=$(grep -oP 'version\s*=\s*\K[0-9]+' "$FILE")
+              if [ ! -z "$CURRENT_VERSION" ]; then
+                NEXT_VERSION=$((CURRENT_VERSION + 1))
+                sed -i "s/version = $CURRENT_VERSION/version = $NEXT_VERSION/g" "$FILE"
+                UPDATED=true
+              fi
+            fi
+          done
+          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push
+        if: steps.bump_version.outputs.updated == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore: bump versions [skip ci]"
+          git push
+
+      # --- ĐÂY LÀ ĐOẠN GỌI FILE BUILD.YML ---
+      - name: Trigger Build Workflow
+        if: steps.bump_version.outputs.updated == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml', // Tên file build của bạn
+              ref: 'dev' // Hoặc context.ref
+            })
+            
