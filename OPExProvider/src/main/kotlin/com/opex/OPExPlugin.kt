@@ -1,0 +1,26 @@
+package com.opex
+
+import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.lagradost.cloudstream3.plugins.Plugin
+import android.content.Context
+import androidx.appcompat.app.AppCompatActivity
+
+@CloudstreamPlugin
+class OPExPlugin: Plugin() {
+    override fun load(context: Context) {
+        // Đăng ký provider OPhim
+        val prefs = context.getSharedPreferences(OPExProvider.PREFS_NAME, Context.MODE_PRIVATE)
+        val domain = prefs.getString(OPExProvider.PREF_DOMAIN, null)
+        val provider = OPExProvider()
+        if (!domain.isNullOrEmpty()) provider.mainUrl = domain
+        OPExProvider.ctx = context
+        registerMainAPI(provider)
+        val activity = context as? AppCompatActivity
+        if (activity != null) {
+            openSettings = {
+                val frag = SettingsFragment(this, prefs)
+                frag.show(activity.supportFragmentManager, "OPExSettings")
+            }
+        }
+    }
+}
